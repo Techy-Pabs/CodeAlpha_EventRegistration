@@ -4,9 +4,17 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
+from .models import DUPLICATE_USERNAME
+
 User = get_user_model()
 
 DUPLICATE_EMAIL = "A user with that email already exists."
+
+
+def _constraint_name(exc):
+    """Name of the constraint Postgres reports for an IntegrityError, or ""."""
+    diag = getattr(exc.__cause__, "diag", None)
+    return getattr(diag, "constraint_name", None) or ""
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -32,6 +40,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "is_organiser"]
         extra_kwargs = {"email": {"required": True, "allow_blank": False}}
 
+    def validate_username(self, value):
+        # The built-in unique check is case-sensitive; this one is not.
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError(DUPLICATE_USERNAME)
+        return value
+
     def validate_email(self, value):
         email = value.strip().lower()
         if User.objects.filter(email__iexact=email).exists():
@@ -54,8 +68,10 @@ class RegisterSerializer(serializers.ModelSerializer):
             with transaction.atomic():
                 return User.objects.create_user(**validated_data)
         except IntegrityError as exc:
-            # Two sign-ups with the same email racing past validate_email:
-            # the database constraint catches the second one.
+            # Two sign-ups racing past the checks above: the database
+            # constraint catches the second one. Report the right field.
+            if "username" in _constraint_name(exc):
+                raise serializers.ValidationError({"username": [DUPLICATE_USERNAME]}) from exc
             raise serializers.ValidationError({"email": [DUPLICATE_EMAIL]}) from exc
 
 

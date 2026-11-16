@@ -27,6 +27,9 @@ env = environ.Env(
 environ.Env.read_env(BASE_DIR / ".env")
 
 SECRET_KEY = env("SECRET_KEY")
+# Separate key for signing JWTs, so rotating it logs every API user out
+# without touching sessions, password reset links or other SECRET_KEY uses.
+JWT_SIGNING_KEY = env("JWT_SIGNING_KEY")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 
@@ -89,6 +92,9 @@ DATABASES = {
 
 # Custom user model. Must be set before the first migration.
 AUTH_USER_MODEL = "accounts.User"
+
+# Username lookup at login ignores letter case.
+AUTHENTICATION_BACKENDS = ["accounts.backends.CaseInsensitiveModelBackend"]
 
 
 # Password validation
@@ -163,7 +169,7 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    "SIGNING_KEY": SECRET_KEY,
+    "SIGNING_KEY": JWT_SIGNING_KEY,
 }
 
 
