@@ -22,6 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, []),
+    SECURE_COOKIES=(bool, False),
 )
 # Read key=value pairs from .env into the environment (real env vars win).
 environ.Env.read_env(BASE_DIR / ".env")
@@ -54,6 +55,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves collected static files (admin CSS/JS) straight from gunicorn.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -132,6 +135,14 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "static/"
+# collectstatic copies every app's static files here; WhiteNoise serves them.
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    # Adds a content hash to each file name and pre-compresses it, so
+    # browsers can cache files forever and still get new versions.
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -188,3 +199,16 @@ SPECTACULAR_SETTINGS = {
     # Swagger UI remembers the token across page reloads.
     "SWAGGER_UI_SETTINGS": {"persistAuthorization": True},
 }
+
+
+# Production hardening (only when DEBUG is off)
+if not DEBUG:
+    # Browsers must trust the declared Content-Type, not guess it.
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    # No page of this site may be shown inside a frame (clickjacking).
+    X_FRAME_OPTIONS = "DENY"
+    # Cookies only over HTTPS. Off by default so the admin login still works
+    # over plain HTTP locally (e.g. the Docker setup on localhost:8001).
+    # Set SECURE_COOKIES=True once the site is served over HTTPS.
+    SESSION_COOKIE_SECURE = env("SECURE_COOKIES")
+    CSRF_COOKIE_SECURE = env("SECURE_COOKIES")
