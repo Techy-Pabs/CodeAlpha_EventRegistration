@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.validators import RegexValidator
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -65,3 +66,48 @@ class EventSerializer(serializers.ModelSerializer):
         if starts_at and ends_at and ends_at <= starts_at:
             raise serializers.ValidationError({"ends_at": ["End time must be after start time."]})
         return attrs
+
+
+class RegistrationCreateSerializer(serializers.Serializer):
+    """Body of POST /api/events/{id}/register/. Both fields are optional."""
+
+    phone = serializers.CharField(
+        max_length=20,
+        required=False,
+        allow_blank=True,
+        validators=[
+            RegexValidator(
+                r"^[0-9 +-]*$",
+                "Phone may contain only digits, spaces, + and -.",
+            )
+        ],
+    )
+    note = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
+
+class EventSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Event
+        fields = ["id", "title", "starts_at"]
+        read_only_fields = fields
+
+
+class RegistrationSerializer(serializers.ModelSerializer):
+    event = EventSummarySerializer(read_only=True)
+
+    class Meta:
+        model = Registration
+        fields = ["id", "event", "status", "phone", "note", "created_at", "cancelled_at"]
+        read_only_fields = fields
+
+
+class AttendeeSerializer(serializers.ModelSerializer):
+    """One confirmed attendee, as the event's organiser sees them."""
+
+    username = serializers.CharField(source="user.username", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+
+    class Meta:
+        model = Registration
+        fields = ["username", "email", "phone", "note", "created_at"]
+        read_only_fields = fields
