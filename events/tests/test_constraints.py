@@ -112,3 +112,18 @@ def test_deleting_attendee_cascades_to_their_registrations(event, attendee):
     attendee.delete()
     assert not Registration.objects.filter(event=event).exists()
     assert Event.objects.filter(pk=event.pk).exists()
+
+
+def test_invalid_registration_status_is_rejected_by_database(event, attendee):
+    reg = Registration.objects.create(user=attendee, event=event)
+    # queryset.update() goes straight to SQL, skipping Python choice validation.
+    with pytest.raises(IntegrityError, match="registration_status_valid"), transaction.atomic():
+        Registration.objects.filter(pk=reg.pk).update(status="pending")
+    reg.refresh_from_db()
+    assert reg.status == Registration.Status.CONFIRMED
+
+
+def test_status_constraint_allows_every_choice(event, attendee):
+    reg = Registration.objects.create(user=attendee, event=event)
+    for value in Registration.Status.values:
+        Registration.objects.filter(pk=reg.pk).update(status=value)  # must not raise

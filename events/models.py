@@ -38,10 +38,15 @@ class Event(models.Model):
         return f"{self.title} ({self.starts_at:%Y-%m-%d %H:%M})"
 
 
+class RegistrationStatus(models.TextChoices):
+    CONFIRMED = "confirmed", "Confirmed"
+    CANCELLED = "cancelled", "Cancelled"
+
+
 class Registration(models.Model):
-    class Status(models.TextChoices):
-        CONFIRMED = "confirmed", "Confirmed"
-        CANCELLED = "cancelled", "Cancelled"
+    # Alias so callers can keep using Registration.Status.CONFIRMED.
+    # Defined at module level because Meta below cannot see class-body names.
+    Status = RegistrationStatus
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -70,6 +75,11 @@ class Registration(models.Model):
                 fields=["user", "event"],
                 condition=Q(status="confirmed"),
                 name="unique_confirmed_registration_per_user_event",
+            ),
+            # Allowed values come from RegistrationStatus, so they cannot drift.
+            models.CheckConstraint(
+                condition=Q(status__in=RegistrationStatus.values),
+                name="registration_status_valid",
             ),
             # TextField max_length is only enforced by forms; enforce it in the DB too.
             models.CheckConstraint(
