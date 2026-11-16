@@ -26,7 +26,27 @@ contains() {
 
 cd "$(git rev-parse --show-toplevel)"
 
-files=$(git diff --cached --name-only --diff-filter=ACMR)
+# Forbidden filenames (.env.example is the one allowed .env file).
+FORBIDDEN='(^|/)\.env($|\.)|\.pem$|\.key$|(^|/)id_(rsa|dsa|ecdsa|ed25519)|\.p12$|\.pfx$'
+ALLOWED='(^|/)\.env\.example$'
+
+# 0. A rename whose SOURCE is a forbidden file (e.g. git mv .env app.cfg)
+#    still commits the secret under a new name, so block it.
+rc=0
+renames=$(git diff --cached --name-status -M --diff-filter=R) || rc=$?
+[ "$rc" -eq 0 ] || fail "rename listing errored (git exit $rc)"
+if [ -n "$renames" ]; then
+  rc=0
+  bad=$(cut -f2 <<<"$renames" | grep -vE "$ALLOWED" | grep -E "$FORBIDDEN") || rc=$?
+  [ "$rc" -le 1 ] || fail "rename check errored (grep exit $rc)"
+  [ -z "$bad" ] || fail "forbidden file renamed (its contents would be committed): $bad"
+fi
+
+# Added, copied, modified and renamed files. --no-renames makes git report a
+# rename as delete + add, so the renamed file's full contents land in the
+# diff below. Without it a pure rename shows no added lines and the content
+# checks would never see it.
+files=$(git diff --cached --no-renames --name-only --diff-filter=ACMR)
 if [ -z "$files" ]; then
   exit 0  # nothing added or modified (e.g. only deletions or --allow-empty)
 fi
@@ -34,16 +54,14 @@ fi
 echo "Secret check: staged files"
 echo "$files" | sed 's/^/  /'
 
-# 1. Forbidden filenames (.env.example is the one allowed .env file)
+# 1. Forbidden filenames among the staged files
 rc=0
-bad=$(echo "$files" \
-  | grep -vE '(^|/)\.env\.example$' \
-  | grep -E '(^|/)\.env($|\.)|\.pem$|\.key$|(^|/)id_(rsa|dsa|ecdsa|ed25519)|\.p12$|\.pfx$') || rc=$?
+bad=$(grep -vE "$ALLOWED" <<<"$files" | grep -E "$FORBIDDEN") || rc=$?
 [ "$rc" -le 1 ] || fail "filename check errored (grep exit $rc)"
 [ -z "$bad" ] || fail "forbidden file staged: $bad"
 
 # 2. Secret-looking patterns in the added lines of the staged diff
-diff=$(git diff --cached -U0 --no-color)
+diff=$(git diff --cached --no-renames -U0 --no-color)
 rc=0
 added=$(grep -E '^\+' <<<"$diff" | grep -vE '^\+\+\+ ') || rc=$?
 [ "$rc" -le 1 ] || fail "diff extraction errored (grep exit $rc)"
