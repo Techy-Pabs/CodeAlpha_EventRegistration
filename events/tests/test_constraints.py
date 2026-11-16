@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
 from django.utils import timezone
 
 from events.models import Event, Registration
@@ -95,3 +96,19 @@ def test_registration_defaults_and_optional_fields(event, attendee):
     assert reg.status == Registration.Status.CONFIRMED
     assert reg.phone == "" and reg.note == "" and reg.cancelled_at is None
     assert str(reg) == "att -> Django Meetup [confirmed]"
+
+
+# --- Deletion behaviour --------------------------------------------------
+
+def test_deleting_organiser_with_events_raises_protected_error(event, organiser):
+    with pytest.raises(ProtectedError):
+        organiser.delete()
+    assert get_user_model().objects.filter(pk=organiser.pk).exists()
+    assert Event.objects.filter(pk=event.pk).exists()
+
+
+def test_deleting_attendee_cascades_to_their_registrations(event, attendee):
+    Registration.objects.create(user=attendee, event=event)
+    attendee.delete()
+    assert not Registration.objects.filter(event=event).exists()
+    assert Event.objects.filter(pk=event.pk).exists()

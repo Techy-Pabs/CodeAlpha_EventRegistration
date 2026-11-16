@@ -14,7 +14,7 @@ class Event(models.Model):
     capacity = models.PositiveIntegerField()
     organiser = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="organised_events",
     )
     is_published = models.BooleanField(default=False)
