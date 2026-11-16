@@ -13,7 +13,15 @@ class RegistrationInline(admin.TabularInline):
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ("title", "location", "starts_at", "ends_at", "capacity", "organiser", "is_published")
+    list_display = (
+        "title",
+        "location",
+        "starts_at",
+        "ends_at",
+        "capacity",
+        "organiser",
+        "is_published",
+    )
     list_filter = ("is_published", "starts_at", "organiser")
     search_fields = ("title", "description", "location", "organiser__username")
     date_hierarchy = "starts_at"

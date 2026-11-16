@@ -13,7 +13,9 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture
 def organiser():
-    return get_user_model().objects.create_user(username="org", password="pw-12345!", is_organiser=True)
+    return get_user_model().objects.create_user(
+        username="org", password="pw-12345!", is_organiser=True
+    )
 
 
 @pytest.fixture
@@ -42,6 +44,7 @@ def event(organiser):
 
 # --- Event constraints ---------------------------------------------------
 
+
 def test_valid_event_is_saved(event):
     assert Event.objects.filter(pk=event.pk).exists()
 
@@ -65,9 +68,13 @@ def test_event_capacity_zero_is_rejected(organiser):
 
 # --- Registration constraints --------------------------------------------
 
+
 def test_duplicate_confirmed_registration_is_rejected(event, attendee):
     Registration.objects.create(user=attendee, event=event)
-    with pytest.raises(IntegrityError, match="unique_confirmed_registration_per_user_event"), transaction.atomic():
+    with (
+        pytest.raises(IntegrityError, match="unique_confirmed_registration_per_user_event"),
+        transaction.atomic(),
+    ):
         Registration.objects.create(user=attendee, event=event)
     assert Registration.objects.filter(user=attendee, event=event).count() == 1
 
@@ -81,9 +88,12 @@ def test_reregistering_after_cancelling_is_allowed(event, attendee):
     Registration.objects.create(user=attendee, event=event)  # must not raise
 
     assert Registration.objects.filter(user=attendee, event=event).count() == 2
-    assert Registration.objects.filter(
-        user=attendee, event=event, status=Registration.Status.CONFIRMED
-    ).count() == 1
+    assert (
+        Registration.objects.filter(
+            user=attendee, event=event, status=Registration.Status.CONFIRMED
+        ).count()
+        == 1
+    )
 
 
 def test_registration_note_over_500_chars_is_rejected(event, attendee):
@@ -99,6 +109,7 @@ def test_registration_defaults_and_optional_fields(event, attendee):
 
 
 # --- Deletion behaviour --------------------------------------------------
+
 
 def test_deleting_organiser_with_events_raises_protected_error(event, organiser):
     with pytest.raises(ProtectedError):
