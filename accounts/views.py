@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -28,6 +29,12 @@ class LogoutView(generics.GenericAPIView):
 
     serializer_class = LogoutSerializer
 
+    @extend_schema(
+        responses={
+            205: OpenApiResponse(description="Refresh token blacklisted."),
+            400: OpenApiResponse(description="Invalid, expired or already used token."),
+        }
+    )
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)

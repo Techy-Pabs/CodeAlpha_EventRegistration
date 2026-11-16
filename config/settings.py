@@ -165,3 +165,20 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "SIGNING_KEY": SECRET_KEY,
 }
+
+
+# drf-spectacular (OpenAPI schema + Swagger UI)
+SPECTACULAR_SETTINGS = {
+    "TITLE": "CodeAlpha Event Registration API",
+    "DESCRIPTION": "Register for events. Log in at /api/auth/token/, then click "
+    "Authorize and paste the access token.",
+    "VERSION": "0.1.0",
+    # Serve only the API schema, not the schema endpoint describing itself.
+    "SERVE_INCLUDE_SCHEMA": False,
+    # The schema and Swagger UI are public: no login, and a stale
+    # Authorization header can't make them fail.
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "SERVE_AUTHENTICATION": [],
+    # Swagger UI remembers the token across page reloads.
+    "SWAGGER_UI_SETTINGS": {"persistAuthorization": True},
+}
