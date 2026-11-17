@@ -1,6 +1,12 @@
 # CodeAlpha Event Registration System
 
 [![CI](https://github.com/Techy-Pabs/CodeAlpha_EventRegistration/actions/workflows/ci.yml/badge.svg)](https://github.com/Techy-Pabs/CodeAlpha_EventRegistration/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/live%20demo-onrender.com-46e3b7)](https://codealpha-eventreg.onrender.com)
+
+**Live demo:** https://codealpha-eventreg.onrender.com (Swagger at
+[/api/docs/](https://codealpha-eventreg.onrender.com/api/docs/)). It runs on
+Render's free plan, which sleeps when idle, so the first load can take up to
+a minute.
 
 A REST API for publishing events and signing up for them. Organisers create
 events with a fixed number of seats, and other users register, see their
