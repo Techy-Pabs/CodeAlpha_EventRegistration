@@ -233,22 +233,46 @@ git config core.hooksPath .githooks
 
 ## Screenshots
 
+These were taken from the Docker setup after running `seed_demo`.
+
 ### Swagger UI
 
-_Screenshot to be added._
+![Swagger UI listing the auth, events, health and registrations endpoints](docs/screenshots/01-swagger-overview.png)
+
+All the endpoints in Swagger UI, grouped into auth, events, health and registrations.
 
 ### Event list
 
-_Screenshot to be added._
+![GET /api/events/ returning seed events with seats_left](docs/screenshots/02-event-list.png)
+
+The public event list, where each event shows how many seats are left.
 
 ### Registering for an event
 
-_Screenshot to be added._
+![POST /api/events/2/register/ returning 201 Created](docs/screenshots/03-register-success.png)
+
+An attendee registers with a phone number and a note and gets a confirmed registration back.
+
+### Registering for a full event
+
+![POST /api/events/5/register/ returning 409 Event is full](docs/screenshots/04-event-full.png)
+
+The same attendee tries to book an event with no seats left and gets a 409.
+
+### My registrations
+
+![GET /api/registrations/ listing the attendee's own registrations](docs/screenshots/05-my-registrations.png)
+
+The attendee's own registrations, newest first, with the event title and start time.
+
+### Django admin
+
+![Django admin change page for an event with its registrations inline](docs/screenshots/06-admin-event.png)
+
+An event in the Django admin, with its registrations listed underneath, including a cancelled one.
 
 ### Attendee list (organiser view)
 
-_Screenshot to be added._
+![GET /api/events/4/attendees/ showing confirmed attendees](docs/screenshots/07-attendees.png)
 
-### Django admin: approving an organiser
-
-_Screenshot to be added._
+The organiser sees the confirmed attendees of the nearly full event, with their contact details.
