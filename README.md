@@ -180,6 +180,14 @@ The API is then at <http://localhost:8000/api/docs/>.
 | `POSTGRES_PASSWORD` | `change-me` | Database password for the Postgres container |
 | `DATABASE_URL` | `postgres://event_user:change-me@localhost:5434/event_registration` | How the app connects to Postgres from the host. Docker Compose replaces it inside the web container so it points at the `db` service |
 | `DEMO_PASSWORD` | `change-me-demo-password` | Password for the accounts that `seed_demo` creates |
+| `CSRF_TRUSTED_ORIGINS` | *(empty)* | Comma-separated full origins (with `https://`) allowed to submit forms such as the admin login. Needed on HTTPS |
+| `SECURE_SSL_REDIRECT` | `False` | Redirects HTTP to HTTPS and sends a one-day HSTS header. `/api/health/` is never redirected |
+| `DATABASE_CONN_MAX_AGE` | `60` | Seconds to keep reusing a database connection. `0` reconnects on every request |
+| `NUM_PROXIES` | *(empty)* | Number of proxies in front of the app, so rate limits see each client's real IP. Leave empty locally |
+| `WEB_CONCURRENCY` | `2` | Number of gunicorn worker processes (Docker image only) |
+| `PORT` | *(unset)* | Port gunicorn listens on (Docker image only). Render sets it; defaults to `8000` |
+| `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD` | *(unset)* | If all three are set, the container creates this admin account on start (if it doesn't exist yet) |
+| `SEED_DEMO_ON_START` | *(unset)* | `True` runs `seed_demo --force` every time the container starts |
 
 Generate random keys with:
 
@@ -190,7 +198,7 @@ python -c "import secrets; print(secrets.token_urlsafe(50))"
 ## Tests and linting
 
 ```bash
-pytest                  # 167 tests, needs the database from .env
+pytest                  # 207 tests, needs the database from .env
 ruff check .
 ruff format --check .
 ```
@@ -212,19 +220,177 @@ this once:
 git config core.hooksPath .githooks
 ```
 
+## Deployment
+
+The API runs on [Render](https://render.com) as a free Docker web service,
+with the database on [Neon](https://neon.tech) (free PostgreSQL). Docker
+Compose is only for local development; on Render the container connects to
+Neon over the internet.
+
+### What the container does when it starts
+
+`docker/entrypoint.sh` runs these steps in order. If any of them fails, it
+prints a line starting with `ERROR:` and exits without starting the app. On
+Render the deploy is then marked as failed and the previous version keeps
+serving, so the app never runs half set up.
+
+1. Waits for the database (up to 30 seconds).
+2. Applies migrations.
+3. Creates the admin account from the `DJANGO_SUPERUSER_*` variables, if all
+   three are set and that username doesn't exist yet. An existing account is
+   left as it is, so a password you change in the admin isn't reset on the
+   next start. The password is never printed.
+4. Runs `seed_demo --force` if `SEED_DEMO_ON_START` is `True`.
+5. Starts gunicorn on `0.0.0.0:$PORT` with `WEB_CONCURRENCY` workers (2 by
+   default, which fits the free plan's 512 MB of RAM).
+
+Steps 3 and 4 exist because Render's free plan has no shell, so you can't
+run `createsuperuser` or `seed_demo` by hand.
+
+### 1. Create the database on Neon
+
+1. Create a Neon project. Choose PostgreSQL 16 to match the local setup, and
+   a region close to the Render region you'll pick.
+2. On the project dashboard, open **Connect**. Turn off **Connection
+   pooling** so you get the direct connection string (its host name doesn't
+   contain `-pooler`). The app keeps its own connections open for a minute
+   at a time, so it doesn't need Neon's pooler, and migrations run on every
+   start.
+3. Copy the connection string. It looks like this:
+
+   ```
+   postgresql://USER:PASSWORD@ep-example-123456.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+   ```
+
+   Paste it into Render unchanged. `sslmode=require` and
+   `channel_binding=require` are passed to the database driver, so the
+   connection is encrypted. Treat the whole string as a secret, because it
+   contains the database password.
+
+The tables are created by the migrations on the first start.
+
+### 2. Create the web service on Render
+
+1. In Render, choose **New**, then **Web Service**, and connect this GitHub
+   repository. Pick the `main` branch.
+2. Set **Language** to **Docker**. Render builds the `Dockerfile` in the
+   project root. Leave the Docker command empty, so the image's own
+   entrypoint and gunicorn command run.
+3. Choose the **Free** instance type, in a region close to your Neon region.
+4. Under **Advanced**, set **Health Check Path** to `/api/health/`. It
+   returns 200 only when the database answers, and it's exempt from the
+   HTTPS redirect.
+5. Add the environment variables below, then create the service.
+
+Render gives the service an address such as `your-app.onrender.com`. Use
+it in `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`. If you don't know it yet,
+create the service first, then set those two variables and let it redeploy.
+
+Every push to `main` then triggers a new build and deploy.
+
+### Environment variables on Render
+
+| Variable | Value | What it's for |
+| --- | --- | --- |
+| `SECRET_KEY` | A new random value, not your local one | Django's signing key for sessions, CSRF and password reset links |
+| `JWT_SIGNING_KEY` | A different new random value | Signs the API's access and refresh tokens |
+| `DEBUG` | `False` | Turns off debug pages and turns on the production hardening |
+| `ALLOWED_HOSTS` | `your-app.onrender.com` | The host name the site answers to |
+| `CSRF_TRUSTED_ORIGINS` | `https://your-app.onrender.com` | Lets the admin login form work over HTTPS |
+| `SECURE_SSL_REDIRECT` | `True` | Redirects HTTP to HTTPS and sends a one-day HSTS header |
+| `SECURE_COOKIES` | `True` | Sends session and CSRF cookies over HTTPS only |
+| `DATABASE_URL` | The Neon connection string, unchanged | How the app reaches the database |
+| `NUM_PROXIES` | `1` to start with (see below) | Lets rate limiting see each visitor's IP instead of Render's proxy |
+| `DJANGO_SUPERUSER_USERNAME` | e.g. `admin` | Username of the admin account created on start |
+| `DJANGO_SUPERUSER_EMAIL` | Your email | Email of that admin account |
+| `DJANGO_SUPERUSER_PASSWORD` | A new strong password | Its password. It must pass Django's password checks, or startup stops with the reason |
+| `SEED_DEMO_ON_START` | `True` for a demo, otherwise leave it out | Loads the demo users, events and registrations on every start |
+| `DEMO_PASSWORD` | A new random value | Password of the demo accounts. Required when `SEED_DEMO_ON_START` is `True` |
+| `WEB_CONCURRENCY` | Optional, default `2` | Number of gunicorn workers. Keep it at 2 on the free plan |
+| `DATABASE_CONN_MAX_AGE` | Optional, default `60` | Seconds to reuse a database connection |
+
+Not needed on Render: `PORT` (Render sets it) and `POSTGRES_DB`,
+`POSTGRES_USER` and `POSTGRES_PASSWORD` (they only configure the local
+database container).
+
+Generate random values with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(50))"
+```
+
+Notes:
+
+- **The admin variables are all or nothing.** If only one or two of the
+  `DJANGO_SUPERUSER_*` variables are set, startup stops with an error naming
+  the missing one. After the first successful deploy you can delete all
+  three. The account stays in the database.
+- **Demo data is reloaded on every start** while `SEED_DEMO_ON_START` is
+  `True`, and on the free plan that's every time the service wakes up.
+  `seed_demo` doesn't duplicate anything. It does reset the demo accounts'
+  passwords to `DEMO_PASSWORD`, move the demo events back into the future
+  and re-book demo registrations that were cancelled. Data created by other
+  users is not touched.
+
+### Checking NUM_PROXIES on Render
+
+On Render a request passes through Cloudflare and Render's own proxy before
+it reaches the app, and each proxy adds an address to the end of the
+`X-Forwarded-For` header. A visitor can put anything at the start of that
+header, so DRF counts `NUM_PROXIES` entries from the end. `1` takes the
+last entry, which a proxy always writes, so a visitor can't fake it. If that
+entry turns out to be a Cloudflare address, many visitors would share one
+rate limit, and `2` is the right value. To check:
+
+1. On Render, temporarily add this environment variable, which makes
+   gunicorn's access log show the header:
+
+   ```
+   GUNICORN_CMD_ARGS=--access-logformat '%(h)s xff="%({x-forwarded-for}i)s" "%(r)s" %(s)s'
+   ```
+
+2. Open the site from your own device. Find the request in Render's
+   **Logs**, and find your own public IP (search "what is my IP").
+3. If your IP is the **last** entry in `xff="..."`, keep `NUM_PROXIES=1`.
+   If it's the second to last, and the last is a Cloudflare address, set
+   `NUM_PROXIES=2`.
+4. Delete `GUNICORN_CMD_ARGS` again, so the logs stop recording IP
+   addresses.
+
+Never set it higher than the number of addresses that the proxies add. A
+visitor could then choose their own IP and avoid the rate limit.
+
+### Free plan behaviour
+
+- **It sleeps.** A free Render web service goes to sleep after about 15
+  minutes without requests. The next request wakes it up, which takes up to
+  about a minute (the container also runs the migrations and startup tasks
+  again), so the first request after a quiet period is slow. It's fast
+  again once awake.
+- **Neon pauses too.** Neon's free plan suspends the database when it's
+  idle and resumes it on the next query, which adds a short delay.
+  Connections that Neon closed are detected and replaced (Django's
+  `CONN_HEALTH_CHECKS`), so they don't cause errors.
+- **One instance, little memory.** 512 MB of RAM, which is why the default
+  is two gunicorn workers. Rate limit counters live in each worker's memory
+  and reset when the service restarts.
+- **No shell, no scheduled jobs.** Use the startup variables above instead
+  of `manage.py` commands.
+
 ## Production notes
 
 - **Rate limits need a shared cache.** Throttle counters are kept in Django's
   default cache, which lives in each process's memory. The Docker image runs
-  three gunicorn workers, so each worker keeps its own count and a client can
-  get roughly three times the limit. In production, set `CACHES` to Redis so
-  all workers share one count.
+  two gunicorn workers by default (`WEB_CONCURRENCY`), so each worker keeps
+  its own count and a client can get roughly twice the limit. For strict
+  limits, set `CACHES` to Redis so all workers share one count.
 - **Set `NUM_PROXIES` behind a proxy.** Rate limits are tracked per client
   IP. Behind a load balancer or reverse proxy, every request seems to come
-  from the proxy unless you set `REST_FRAMEWORK["NUM_PROXIES"]` to the number
-  of proxies in front of the app. Then DRF reads the real IP from
+  from the proxy unless you set the `NUM_PROXIES` environment variable to the
+  number of proxies in front of the app. Then DRF reads the real IP from
   `X-Forwarded-For`. Don't set it higher than the real number, or clients
-  can fake their IP with that header.
+  can fake their IP with that header. See
+  [Checking NUM_PROXIES on Render](#checking-num_proxies-on-render).
 - **Logout doesn't end the access token.** Logging out blacklists the refresh
   token, but an access token that was already issued keeps working until it
   expires, which is at most 15 minutes. Keep the access token lifetime short.
