@@ -18,3 +18,9 @@ def test_schema_ignores_stale_bearer_token(api_client):
 @pytest.mark.django_db
 def test_swagger_ui_is_public(api_client):
     assert api_client.get(reverse("swagger-ui")).status_code == 200
+
+
+def test_root_redirects_to_swagger_ui(api_client):
+    response = api_client.get("/")
+    assert response.status_code == 302
+    assert response["Location"] == reverse("swagger-ui")

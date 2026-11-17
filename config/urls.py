@@ -18,11 +18,13 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from .views import health
 
 urlpatterns = [
+    path("", RedirectView.as_view(pattern_name="swagger-ui", permanent=False), name="root"),
     path("admin/", admin.site.urls),
     path("api/health/", health, name="health"),
     path("api/auth/", include("accounts.urls")),
