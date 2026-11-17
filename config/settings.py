@@ -23,6 +23,8 @@ env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, []),
     SECURE_COOKIES=(bool, False),
+    SECURE_SSL_REDIRECT=(bool, False),
+    DATABASE_CONN_MAX_AGE=(int, 60),
 )
 # Read key=value pairs from .env into the environment (real env vars win).
 environ.Env.read_env(BASE_DIR / ".env")
@@ -33,6 +35,33 @@ SECRET_KEY = env("SECRET_KEY")
 JWT_SIGNING_KEY = env("JWT_SIGNING_KEY")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
+
+
+def env_list(name):
+    """Comma-separated env var as a list, ignoring spaces and empty items."""
+    return [item.strip() for item in env.str(name, default="").split(",") if item.strip()]
+
+
+# Full origins (scheme + host) allowed to send POST forms, such as the admin
+# login, e.g. https://your-app.onrender.com. Django checks this on HTTPS.
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
+
+# Render's proxy terminates HTTPS and forwards plain HTTP, adding
+# X-Forwarded-Proto: https. This tells Django to trust that header, so
+# request.is_secure() is right and the HTTPS redirect doesn't loop.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Redirect every HTTP request to HTTPS. Off by default for local use.
+SECURE_SSL_REDIRECT = env("SECURE_SSL_REDIRECT")
+# Render's health check calls the container directly over plain HTTP, so
+# the health endpoint must answer instead of redirecting.
+SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
+if SECURE_SSL_REDIRECT:
+    # Tell browsers to use HTTPS only for this host. One day to start, so a
+    # mistake wears off quickly. No subdomains and no preload list.
+    SECURE_HSTS_SECONDS = 60 * 60 * 24
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
 
 
 # Application definition
@@ -88,9 +117,18 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Works with Neon's connection string as given: query options such as
+# sslmode=require and channel_binding=require are passed to the driver.
 DATABASES = {
     "default": env.db("DATABASE_URL"),
 }
+# Reuse a connection for up to this many seconds instead of reconnecting on
+# every request (a TLS handshake to Neon costs noticeable time). 0 closes
+# it after each request.
+DATABASES["default"]["CONN_MAX_AGE"] = env("DATABASE_CONN_MAX_AGE")
+# Check a reused connection before using it. Neon closes idle connections
+# when it pauses the database, and this replaces them instead of failing.
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
 
 # Custom user model. Must be set before the first migration.
@@ -150,6 +188,13 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
+# Proxies in front of the app, for finding the client's IP when throttling.
+# Unset (or empty) keeps DRF's default; 0 means "ignore X-Forwarded-For".
+_num_proxies = env.str("NUM_PROXIES", default="").strip()
+NUM_PROXIES = int(_num_proxies) if _num_proxies else None
+if NUM_PROXIES is not None and NUM_PROXIES < 0:
+    raise ValueError("NUM_PROXIES must be 0 or more.")
+
 # Django REST Framework
 # Every endpoint needs a valid JWT unless the view opts out explicitly
 # (permission_classes = [AllowAny]).
@@ -171,6 +216,10 @@ REST_FRAMEWORK = {
         "register": "5/minute",
         "login": "5/minute",
     },
+    # Number of proxies in front of the app. Throttling then takes the
+    # client's IP from that position, counted from the right, in
+    # X-Forwarded-For. Leave unset when nothing sits in front of the app.
+    "NUM_PROXIES": NUM_PROXIES,
 }
 
 

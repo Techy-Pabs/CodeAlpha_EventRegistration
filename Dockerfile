@@ -28,8 +28,10 @@ USER app
 
 EXPOSE 8000
 
+# Port, worker count and logging come from gunicorn.conf.py, which reads
+# PORT (set by Render, 8000 locally) and WEB_CONCURRENCY (default 2).
 # --no-control-socket: gunicorn 27's runtime control socket would live in the
 # user's home directory, which this user doesn't have (and we don't use it).
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--access-logfile", "-", "--no-control-socket"]
+CMD ["gunicorn", "config.wsgi:application", "--config", "gunicorn.conf.py", "--no-control-socket"]
